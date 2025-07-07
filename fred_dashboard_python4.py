@@ -9,7 +9,7 @@ import plotly.graph_objs as go
 from datetime import datetime
 
 import os
-FRED_API_KEY = os.environ.get('FRED_API_KEY', '353eb2af0ea2b34bb3682a680836be41')
+FRED_API_KEY = os.environ.get('FRED_API_KEY', None)
 # Suppress the specific deprecation warning
 warnings.filterwarnings('ignore', category=FutureWarning, message='.*parsing.*')
 warnings.filterwarnings('ignore', category=UserWarning, message='.*parsing.*')
@@ -18,7 +18,7 @@ app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 server = app.server
 
 
-FRED_API_KEY = "353eb2af0ea2b34bb3682a680836be41"
+
 FRED_BASE_URL = "https://api.stlouisfed.org/fred"
 
 # Default series

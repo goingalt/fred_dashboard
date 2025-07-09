@@ -329,4 +329,4 @@ def load_default_charts(_):
     return fig1, fig2, fig3, fig4
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run_server(debug=True)

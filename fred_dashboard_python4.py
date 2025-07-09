@@ -1,7 +1,7 @@
-# Dash-based FRED dashboard with 4 quadrants and dynamic keyword search
+# Dash-based FRED dashboard with 4 quadrants, dynamic keyword search, and data tables
 import warnings
 import dash
-from dash import dcc, html, Input, Output, State, ctx, callback_context
+from dash import dcc, html, Input, Output, State, ctx, callback_context, dash_table
 import dash_bootstrap_components as dbc
 import requests
 import pandas as pd
@@ -54,6 +54,9 @@ series_id_to_country = {
     'IR3TIB01JPM156N': 'Japan',
     'DCOILWTICO': 'Oil (WTI)'
 }
+
+# Store for graph data
+graph_data_store = {}
 
 def fetch_series(series_id, start='2000-01-01', end=None):
     """Fetch series data from FRED API"""
@@ -120,24 +123,77 @@ def fetch_series(series_id, start='2000-01-01', end=None):
         return pd.DataFrame()
 
 def build_multi_series_chart(series_ids, title):
-    """Build a chart with multiple series"""
+    """Build a chart with multiple series and return both figure and data"""
     fig = go.Figure()
+    combined_data = []
+    
     for sid in series_ids:
         df = fetch_series(sid)
         if not df.empty:
+            country_name = series_id_to_country.get(sid, sid)
             fig.add_trace(go.Scatter(
                 x=df['date'], 
                 y=df['value'], 
                 mode='lines', 
-                name=series_id_to_country.get(sid, sid)
+                name=country_name
             ))
+            
+            # Prepare data for table
+            df_table = df.copy()
+            df_table['series'] = country_name
+            df_table['date'] = df_table['date'].dt.strftime('%Y-%m-%d')
+            combined_data.append(df_table[['date', 'series', 'value']])
+    
     fig.update_layout(
         title=title, 
         yaxis_title='Value',
         hovermode='x unified',
         template='plotly_white'
     )
-    return fig
+    
+    # Combine all data for table
+    if combined_data:
+        table_data = pd.concat(combined_data, ignore_index=True)
+        table_data = table_data.sort_values(['date', 'series'])
+    else:
+        table_data = pd.DataFrame(columns=['date', 'series', 'value'])
+    
+    return fig, table_data
+
+def create_data_table(data, table_id):
+    """Create a data table component"""
+    if data.empty:
+        return html.Div("No data available", className="text-center text-muted")
+    
+    return dash_table.DataTable(
+        id=table_id,
+        data=data.to_dict('records'),
+        columns=[
+            {'name': 'Date', 'id': 'date'},
+            {'name': 'Series', 'id': 'series'},
+            {'name': 'Value', 'id': 'value', 'type': 'numeric', 'format': {'specifier': '.2f'}}
+        ],
+        style_cell={
+            'textAlign': 'left',
+            'padding': '10px',
+            'fontSize': '12px'
+        },
+        style_header={
+            'backgroundColor': 'rgb(230, 230, 230)',
+            'fontWeight': 'bold'
+        },
+        style_data_conditional=[
+            {
+                'if': {'row_index': 'odd'},
+                'backgroundColor': 'rgb(248, 248, 248)'
+            }
+        ],
+        page_size=10,
+        sort_action="native",
+        filter_action="native",
+        export_format="csv",
+        style_table={'overflowX': 'auto'}
+    )
 
 def search_fred_series(keyword):
     """Search for FRED series by keyword"""
@@ -166,32 +222,41 @@ def search_fred_series(keyword):
 # App Layout
 app.layout = html.Div([
     dbc.Container([
-        html.H2("FRED Quadrant Dashboard with Keyword Search", className="text-center mb-4"),
+        html.H2("FRED Quadrant Dashboard with Data Tables", className="text-center mb-4"),
         
         # API Key warning
         html.Div(id="api-warning", style={'display': 'none' if FRED_API_KEY else 'block'}),
         
-        # 2x2 Graph Grid
+        # 2x2 Graph Grid with Data Tables
         dbc.Row([
             dbc.Col([
-                dcc.Graph(id='graph-1', style={'height': '400px'})
+                dcc.Graph(id='graph-1', style={'height': '400px'}),
+                html.H5("Data Table", className="mt-3 mb-2"),
+                html.Div(id='table-1')
             ], width=6),
             dbc.Col([
-                dcc.Graph(id='graph-2', style={'height': '400px'})
+                dcc.Graph(id='graph-2', style={'height': '400px'}),
+                html.H5("Data Table", className="mt-3 mb-2"),
+                html.Div(id='table-2')
             ], width=6)
-        ], className="mb-3"),
+        ], className="mb-4"),
         
         dbc.Row([
             dbc.Col([
-                dcc.Graph(id='graph-3', style={'height': '400px'})
+                dcc.Graph(id='graph-3', style={'height': '400px'}),
+                html.H5("Data Table", className="mt-3 mb-2"),
+                html.Div(id='table-3')
             ], width=6),
             dbc.Col([
-                dcc.Graph(id='graph-4', style={'height': '400px'})
+                dcc.Graph(id='graph-4', style={'height': '400px'}),
+                html.H5("Data Table", className="mt-3 mb-2"),
+                html.Div(id='table-4')
             ], width=6)
         ]),
 
-        # Store for active graph
+        # Store for active graph and graph data
         dcc.Store(id='active-graph'),
+        dcc.Store(id='graph-data-store'),
 
         # Configuration Modal
         dbc.Modal([
@@ -270,19 +335,26 @@ def toggle_modal(*args):
     
     return is_open, dash.no_update
 
-# Update specific graph
+# Update specific graph and table
 @app.callback(
-    [Output(f'graph-{i}', 'figure') for i in range(1, 5)],
+    [Output(f'graph-{i}', 'figure') for i in range(1, 5)] +
+    [Output(f'table-{i}', 'children') for i in range(1, 5)] +
+    [Output('graph-data-store', 'data')],
     Input('update-button', 'n_clicks'),
     State('active-graph', 'data'),
     State('series-dropdown', 'value'),
     State('date-picker', 'start_date'),
     State('date-picker', 'end_date'),
+    State('graph-data-store', 'data'),
     prevent_initial_call=True
 )
-def update_selected_graph(n_clicks, active_graph, series_id, start_date, end_date):
+def update_selected_graph(n_clicks, active_graph, series_id, start_date, end_date, current_data):
     if not n_clicks or not series_id or not active_graph:
-        return [dash.no_update] * 4
+        return [dash.no_update] * 9
+    
+    # Initialize current_data if None
+    if current_data is None:
+        current_data = {}
     
     # Fetch data for selected series
     df = fetch_series(series_id, start_date, end_date)
@@ -293,6 +365,7 @@ def update_selected_graph(n_clicks, active_graph, series_id, start_date, end_dat
             title=f"No data available for {series_id}",
             template='plotly_white'
         )
+        table_data = pd.DataFrame(columns=['date', 'series', 'value'])
     else:
         fig = go.Figure()
         fig.add_trace(go.Scatter(
@@ -306,27 +379,57 @@ def update_selected_graph(n_clicks, active_graph, series_id, start_date, end_dat
             yaxis_title='Value',
             template='plotly_white'
         )
+        
+        # Prepare table data
+        table_data = df.copy()
+        table_data['series'] = series_id
+        table_data['date'] = table_data['date'].dt.strftime('%Y-%m-%d')
+        table_data = table_data[['date', 'series', 'value']]
 
-    # Update only the active graph
-    outputs = [dash.no_update] * 4
+    # Update only the active graph and table
+    graph_outputs = [dash.no_update] * 4
+    table_outputs = [dash.no_update] * 4
+    
     if active_graph:
         graph_index = int(active_graph.split('-')[1]) - 1
-        outputs[graph_index] = fig
+        graph_outputs[graph_index] = fig
+        table_outputs[graph_index] = create_data_table(table_data, f'table-{graph_index + 1}')
+        
+        # Store the data for this graph
+        current_data[f'graph-{graph_index + 1}'] = table_data.to_dict('records')
     
-    return outputs
+    return graph_outputs + table_outputs + [current_data]
 
-# Load default charts on startup
+# Load default charts and tables on startup
 @app.callback(
-    [Output(f'graph-{i}', 'figure', allow_duplicate=True) for i in range(1, 5)],
+    [Output(f'graph-{i}', 'figure', allow_duplicate=True) for i in range(1, 5)] +
+    [Output(f'table-{i}', 'children', allow_duplicate=True) for i in range(1, 5)] +
+    [Output('graph-data-store', 'data', allow_duplicate=True)],
     Input('api-warning', 'id'),
     prevent_initial_call='initial_duplicate'
 )
 def load_default_charts(_):
-    fig1 = build_multi_series_chart(DEFAULT_GDP, "G7 GDP Growth")
-    fig2 = build_multi_series_chart(DEFAULT_CPI, "G7 Inflation Rates")
-    fig3 = build_multi_series_chart(DEFAULT_RATE, "G7 Policy Rates")
-    fig4 = build_multi_series_chart(DEFAULT_OIL, "Oil Price (WTI)")
-    return fig1, fig2, fig3, fig4
+    # Build charts and get data
+    fig1, data1 = build_multi_series_chart(DEFAULT_GDP, "G7 GDP Growth")
+    fig2, data2 = build_multi_series_chart(DEFAULT_CPI, "G7 Inflation Rates")
+    fig3, data3 = build_multi_series_chart(DEFAULT_RATE, "G7 Policy Rates")
+    fig4, data4 = build_multi_series_chart(DEFAULT_OIL, "Oil Price (WTI)")
+    
+    # Create tables
+    table1 = create_data_table(data1, 'table-1')
+    table2 = create_data_table(data2, 'table-2')
+    table3 = create_data_table(data3, 'table-3')
+    table4 = create_data_table(data4, 'table-4')
+    
+    # Store data
+    stored_data = {
+        'graph-1': data1.to_dict('records'),
+        'graph-2': data2.to_dict('records'),
+        'graph-3': data3.to_dict('records'),
+        'graph-4': data4.to_dict('records')
+    }
+    
+    return [fig1, fig2, fig3, fig4] + [table1, table2, table3, table4] + [stored_data]
 
 if __name__ == '__main__':
-    app.run_server(debug=True)
+    app.run(debug=True)

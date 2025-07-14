@@ -122,7 +122,7 @@ def fetch_series(series_id, start='2000-01-01', end=None):
         print(f"Exception fetching {series_id}: {e}")
         return pd.DataFrame()
 
-def build_multi_series_chart(series_ids, title):
+def build_multi_series_chart(series_ids, title, calculate_pct_change=False):
     """Build a chart with multiple series and return both figure and data"""
     fig = go.Figure()
     combined_data = []
@@ -131,26 +131,48 @@ def build_multi_series_chart(series_ids, title):
         df = fetch_series(sid)
         if not df.empty:
             country_name = series_id_to_country.get(sid, sid)
-            fig.add_trace(go.Scatter(
-                x=df['date'], 
-                y=df['value'], 
-                mode='lines', 
-                name=country_name
-            ))
-            
-            # Prepare data for table
-            df_table = df.copy()
-            df_table['series'] = country_name
-            df_table['date'] = df_table['date'].dt.strftime('%Y-%m-%d')
-            combined_data.append(df_table[['date', 'series', 'value']])
+                        # Calculate percentage change if requested
+            if calculate_pct_change:
+                df = df.sort_values('date')
+                df['pct_change'] = df['value'].pct_change(periods=4) * 100
+                df = df.dropna(subset=['pct_change'])
+                
+                fig.add_trace(go.Scatter(
+                    x=df['date'], 
+                    y=df['pct_change'], 
+                    mode='lines', 
+                    name=country_name
+                ))
+                
+                # Prepare data for table
+                df_table = df.copy()
+                df_table['series'] = country_name
+                df_table['date'] = df_table['date'].dt.strftime('%Y-%m-%d')
+                df_table['value'] = df_table['pct_change']
+                combined_data.append(df_table[['date', 'series', 'value']])
+            else:
+                fig.add_trace(go.Scatter(
+                    x=df['date'], 
+                    y=df['value'], 
+                    mode='lines', 
+                    name=country_name
+                ))
+                
+                # Prepare data for table
+                df_table = df.copy()
+                df_table['series'] = country_name
+                df_table['date'] = df_table['date'].dt.strftime('%Y-%m-%d')
+                combined_data.append(df_table[['date', 'series', 'value']])
+    
+    # Update y-axis title based on whether we're showing percentage change
+    y_title = '% Change (4 Quarters Ago)' if calculate_pct_change else 'Value'
     
     fig.update_layout(
         title=title, 
-        yaxis_title='Value',
+        yaxis_title=y_title,
         hovermode='x unified',
         template='plotly_white'
     )
-    
     # Combine all data for table
     if combined_data:
         table_data = pd.concat(combined_data, ignore_index=True)

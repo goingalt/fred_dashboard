@@ -164,7 +164,7 @@ def build_multi_series_chart(series_ids, title, calculate_pct_change=False):
                 df_table['date'] = df_table['date'].dt.strftime('%Y-%m-%d')
                 combined_data.append(df_table[['date', 'series', 'value']])
     
-    # Update y-axis title based on whether we're showing percentage change
+   # Update y-axis title based on whether we're showing percentage change
     y_title = '% Change (4 Quarters Ago)' if calculate_pct_change else 'Value'
     
     fig.update_layout(
@@ -432,8 +432,8 @@ def update_selected_graph(n_clicks, active_graph, series_id, start_date, end_dat
 )
 def load_default_charts(_):
     # Build charts and get data
-    fig1, data1 = build_multi_series_chart(DEFAULT_GDP, "G7 GDP Growth")
-    fig2, data2 = build_multi_series_chart(DEFAULT_CPI, "G7 Inflation Rates")
+    fig1, data1 = build_multi_series_chart(DEFAULT_GDP, "G7 GDP Growth (% Change vs 4 Quarters Ago)", calculate_pct_change=True)
+    fig2, data2 = build_multi_series_chart(DEFAULT_CPI, "G7 Inflation Rates", calculate_pct_change=True)
     fig3, data3 = build_multi_series_chart(DEFAULT_RATE, "G7 Policy Rates")
     fig4, data4 = build_multi_series_chart(DEFAULT_OIL, "Oil Price (WTI)")
     
